@@ -63,6 +63,7 @@ idf.py -p /dev/cu.usbmodem1101 monitor
 ```bash
 idf.py -p /dev/cu.usbmodem1101 erase_flash
 idf.py -p /dev/cu.usbmodem1101 flash
+*Вытаскиваем шнур и снова вставляем без зажатой кнопки*
 idf.py -p /dev/cu.usbmodem1101 monitor  # Ждать 30 сек + Enter
 ```
 
