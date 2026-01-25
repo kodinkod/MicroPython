@@ -1,126 +1,96 @@
-# Сборка и прошивка MicroPython для Cardputer‑ADV (ESP32‑S3) на macOS
+# Сборка MicroPython для Cardputer‑ADV: Мой реальный путь (macOS)
 
-**Дата**: 25 января 2026  
-**Устройство**: M5Stack Cardputer‑ADV (ESP32‑S3)  
-**Версия MicroPython**: 1.27.0  
-**Цель**: Сборка с модулем `st7789` (дисплей) + прошивка  
+**Автор**: @kodinkod (Москва, 25.01.2026)  
+**Цель**: MicroPython 1.27.0 + st7789 для M5Stack Cardputer‑ADV  
+**История**: 50+ команд, 2 часа борьбы с ESP‑IDF 😅  
 
-## Предварительные требования
-
+## 🎯 Что получилось
 ```
-✅ ESP-IDF v5.5.2 (~/esp/esp-idf)
-✅ MicroPython 1.27.0 (скачан с micropython.org)
-✅ esptool: pip3 install esptool
-✅ Data USB‑кабель (не charging!)
-✅ Драйвер CH9102/CP210x для macOS
-✅ Порт: /dev/cu.usbmodem1101
+✅ MicroPython 1.27.0 + st7789 (дисплей)
+✅ Прошито на Cardputer‑ADV (/dev/cu.usbmodem1101)
+✅ Готово к диктофону + UI
 ```
 
-## Шаг 1: Подготовка модулей
+## 📋 Пошаговый путь (мои команды)
 
-1. **Скачай/скопируй модуль st7789**:
-   ```
-   /Applications/programming/MicroPythonShell/st7789_mpy/st7789/
-   ```
-
-2. **Скопируй .py файлы**:
-   ```bash
-   cp /Applications/programming/MicroPythonShell/st7789_mpy/st7789/*.py \
-      micropython-1.27.0/ports/esp32/modules/
-   ```
-
-## Шаг 2: Сборка прошивки
-
+### 1. Установка ESP‑IDF v5.5.2 (команды 2186–2205)
 ```bash
-# Активируй ESP-IDF
-source ~/esp/esp-idf/export.sh
+# Зависимости
+brew install libgcrypt glib pixman sdl2 libslirp dfu-util cmake python
+brew tap espressif/eim
+eim install
+xcode-select --install
 
-# Перейди в папку сборки (ВАЖНО!)
-cd micropython-1.27.0/ports/esp32
+# Клонируем ESP-IDF
+mkdir -p ~/esp
+cd ~/esp
+git clone -b v5.5.2 --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf
 
-# Проверь CMakeLists.txt
-ls CMakeLists.txt
+# Установка
+./install.sh all
+. $HOME/esp/esp-idf/export.sh  # ← Каждый раз!
+idf.py  # Тест (должен работать)
+```
 
-# Собери для ESP32-S3 + st7789
+### 2. Подготовка MicroPython + st7789 (2212–2216)
+```bash
+# Скачай MicroPython 1.27.0
+cd /Users/kodin/Downloads/micropython-1.27.0/ports/esp32
+
+# Скопируй .py модули st7789 (я делал вручную)
+cp /Applications/programming/MicroPythonShell/st7789_mpy/st7789/*.py modules/
+
+# Сборка
 idf.py -D MICROPY_BOARD=ESP32_GENERIC_S3 \
        -D USER_C_MODULES=/Applications/programming/MicroPythonShell/st7789_mpy/st7789/micropython.cmake \
        build
 ```
 
-**Вывод успеха**:
-```
-Generated .../ports/esp32/build/micropython.bin
-Project build complete.
-```
-
-## Шаг 3: Прошивка на Cardputer‑ADV
-
-### Подготовка (ОБЯЗАТЕЛЬНО!)
-```
-1. Новый Data USB‑кабель
-2. Зажми BOOT на Cardputer
-3. Подключи USB (держи BOOT!)
-4. Жди "Connecting..." (2–5 сек)
-5. Отпусти BOOT
-```
-
-### Прошивка (esptool напрямую — надёжнее)
+### 3. Прошивка на Cardputer‑ADV (2217–2239)
 ```bash
-# 1. Найди порт
-ls /dev/cu.usbmodem*
+# Порт
+ls /dev/cu.* | grep usbmodem  # /dev/cu.usbmodem1101
 
-# 2. Сотри flash полностью
-esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 erase_flash
-
-# 3. Прошей (медленная скорость!)
-esptool.py --chip esp32s3 \
-           --port /dev/cu.usbmodem1101 \
-           --baud 460800 \
-           write_flash -z 0x10000 \
-           micropython-1.27.0/ports/esp32/build/micropython.bin
-```
-
-### Проверка
-```bash
-# Monitor (ждём 30 сек, Enter)
+# Цикл борьбы (я делал 10+ раз):
+idf.py -p /dev/cu.usbmodem1101 erase_flash
+idf.py -p /dev/cu.usbmodem1101 flash
+idf.py -p /dev/cu.usbmodem1101 reset
 idf.py -p /dev/cu.usbmodem1101 monitor
-
-# Или screen (быстрее)
-screen /dev/cu.usbmodem1101 115200
 ```
 
-**Успех**:
+**Финальный рабочий набор**:
+```bash
+idf.py -p /dev/cu.usbmodem1101 erase_flash
+idf.py -p /dev/cu.usbmodem1101 flash
+idf.py -p /dev/cu.usbmodem1101 monitor  # Ждать 30 сек + Enter
+```
+
+## 🐛 Типичные проблемы (мой опыт)
+
+| Симптом | Причина | Решение |
+|---------|---------|---------|
+| `CMakeLists.txt not found` | Неправильная папка | `cd ports/esp32` (НЕ modules!) |
+| `waiting for download` | BOOT‑режим | Отключить USB → подключить БЕЗ BOOT |
+| `filesystem corrupted` | Неполная FS | `erase_flash` + перепрошивка |
+| `Device not configured` | USB‑кабель | Data cable (не charging!) |
+| `idf.py monitor` висит | Медленный старт | `screen /dev/cu.usbmodem1101 115200` |
+
+## 🚀 Результат
+
 ```
 rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
 MicroPython v1.27.0 on 2026-01-25
->>> import st7789  # Работает!
+>>> import st7789  # ✅ Работает!
 ```
 
-## Типичные проблемы и решения
-
-| Проблема | Решение |
-|----------|---------|
-| `waiting for download` (boot:0x23) | Hard reset: отключить USB → подключить БЕЗ BOOT |
-| `filesystem corrupted` | `erase_flash` + перепрошивка |
-| `Device not configured` | Новый data USB‑кабель, baud 460800 |
-| `idf.py monitor` висит | screen /dev/cu.usbmodem1101 115200 |
-
-## Следующие шаги
-
+## 📂 Репозиторий
 ```
-1. Тестируй st7789:
-   >>> import st7789
-   >>> help(st7789)
-
-2. Создай /apps/ для Microhydra:
-   >>> import os
-   >>> os.mkdir("/apps")
-
-3. Готов к диктофону + UI! 🎤
+git init
+git remote add origin https://github.com/kodinkod/MicroPython.git
 ```
 
-**Автор**: AI/ML Engineer, Москва 2026  
-#M5Stack #CardputerADV #MicroPython #ESP32S3[1]
+**Теперь можно делать диктофон + UI на Microhydra!** 🎤✨  
+#M5Stack #CardputerADV #MicroPython #ESP32S3
 
 Источники
-[1] ESP32-S3 https://micropython.org/download/ESP32_GENERIC_S3/
