@@ -100,70 +100,30 @@ def dump_regs():
 
 
 def init_es8311_adc():
-    """Полная инициализация ES8311 для записи с микрофона"""
+    """Полная инициализация ES8311 для записи с микрофона (из M5Unified)"""
     if not i2c:
         init_i2c()
 
-    print("Initializing ES8311 for ADC/microphone...")
+    print("Initializing ES8311 for ADC/microphone (M5Unified config)...")
 
-    # Reset
-    wr(0x00, 0x1F)
-    wr(0x00, 0x00)
+    # Точная последовательность из M5Unified _microphone_enabled_cb_cardputer_adv
+    wr(0x00, 0x80)  # RESET/ CSM POWER ON
+    wr(0x01, 0xBA)  # CLOCK_MANAGER/ MCLK=BCLK  <-- ВАЖНО!
+    wr(0x02, 0x18)  # CLOCK_MANAGER/ MULT_PRE=3 <-- ВАЖНО!
+    wr(0x0D, 0x01)  # SYSTEM/ Power up analog circuitry
+    wr(0x0E, 0x02)  # SYSTEM/ Enable analog PGA, enable ADC modulator
+    wr(0x14, 0x10)  # ADC_REG14: select Mic1p-Mic1n / PGA GAIN (minimum)
+    wr(0x17, 0xBF)  # ADC_REG17: ADC_VOLUME 0xBF == ± 0 dB
+    wr(0x1C, 0x6A)  # ADC_REG1C: ADC Equalizer bypass, cancel DC offset
 
-    # I2C noise immunity (write twice)
-    wr(0x44, 0x08)
-    wr(0x44, 0x08)
-
-    # Clock manager - MCLK from BCLK
-    wr(0x01, 0x3F)  # Enable all clocks
-    wr(0x02, 0x00)  # Prediv
-    wr(0x03, 0x10)  # ADC OSR
-    wr(0x04, 0x10)  # DAC OSR
-    wr(0x05, 0x00)  # CLK div
-    wr(0x06, 0x03)  # BCLK div
-    wr(0x07, 0x00)  # Tri-state
-    wr(0x08, 0xFF)  # CLK on
-
-    # I2S format - 16-bit
-    wr(0x09, 0x0C)
-    wr(0x0A, 0x0C)
-
-    # System registers
-    wr(0x0B, 0x00)
-    wr(0x0C, 0x00)
-    wr(0x10, 0x1F)
-    wr(0x11, 0x7F)
-
-    # Power up digital
-    wr(0x00, 0x80)
-
-    # ADC power and config
-    wr(0x0D, 0x01)  # Analog power up
-    wr(0x0E, 0x02)  # ADC power up
-    wr(0x0F, 0x00)  # ADC reference
-    wr(0x12, 0x00)
-    wr(0x13, 0x10)
-
-    # ADC gain and volume - MAX
-    wr(0x14, 0x1A)  # PGA gain +30dB
-    wr(0x15, 0x40)  # ADC settings
-    wr(0x16, 0x24)  # ADC HPF
-    wr(0x17, 0xBF)  # ADC volume MAX (unmuted)
-    wr(0x1B, 0x0A)  # MIC boost
-    wr(0x1C, 0x6A)  # ADC scale
-
-    # GPIO config for ADC
-    wr(0x44, 0x58)
-
-    print("ES8311 ADC initialized!")
+    print("ES8311 ADC initialized (M5Unified sequence)!")
 
     # Verify key registers
     print("\nVerifying key registers:")
     checks = [
         (0x00, 0x80, "RESET"),
-        (0x01, 0x3F, "CLK_MGR"),
+        (0x01, 0xBA, "CLK_MGR"),
         (0x17, 0xBF, "ADC_VOL"),
-        (0x44, 0x58, "GPIO"),
     ]
     all_ok = True
     for reg, expected, name in checks:
@@ -172,6 +132,11 @@ def init_es8311_adc():
         if val != expected:
             all_ok = False
         print(f"  {name}: 0x{val:02X} (expected 0x{expected:02X}) {ok}")
+
+    # Дополнительно покажем все ADC регистры
+    print("\nADC registers:")
+    for reg in [0x0D, 0x0E, 0x14, 0x1C]:
+        print(f"  0x{reg:02X} = 0x{rd(reg):02X}")
 
     return all_ok
 
@@ -318,8 +283,10 @@ def test_pins():
 
     init_es8311_adc()
 
-    # Возможные пины для данных микрофона
-    possible_dins = [46, 42, 14, 39, 13, 15, 6, 7, 5]
+    # ВСЕ возможные GPIO на ESP32-S3
+    # Исключаем: 0(strapping), 8-9(I2C), 35-37(SPI дисплей), 41,43(I2S CLK)
+    possible_dins = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                    19, 20, 21, 38, 39, 40, 42, 44, 45, 46, 47, 48]
 
     for din_pin in possible_dins:
         print(f"Testing DIN pin GPIO{din_pin}...", end=" ")
