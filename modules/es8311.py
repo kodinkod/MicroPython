@@ -75,60 +75,22 @@ class ES8311:
         self._write_reg(ES8311_REG00_RESET, 0x1F)
         self._write_reg(ES8311_REG00_RESET, 0x00)
 
-    def init(self, sample_rate=16000, bits=16):
+    def init(self, sample_rate=16000, bits=16, gain=0x1A):
         """
-        Initialize ES8311 for recording (from ESP-ADF driver)
-        sample_rate: 8000, 16000, 22050, 32000, 44100, 48000
-        bits: 16, 24, 32
+        Initialize ES8311 for recording (from M5Unified Cardputer ADV)
+        sample_rate: 16000 Hz
+        bits: 16
+        gain: 0x10 (min) to 0x1A (+30dB)
         """
-        # Step 1: I2C noise immunity (write twice per ESP-ADF)
-        self._write_reg(ES8311_REG44_GPIO, 0x08)
-        self._write_reg(ES8311_REG44_GPIO, 0x08)
-
-        # Step 2: Clock manager init
-        self._write_reg(ES8311_REG01_CLK_MANAGER, 0x30)  # MCLK from BCLK
-        self._write_reg(ES8311_REG02_CLK_MANAGER, 0x00)  # Clock divider
-        self._write_reg(ES8311_REG03_CLK_MANAGER, 0x10)  # ADC OSR
-        self._write_reg(ES8311_REG16_ADC, 0x24)          # ADC gain scale
-        self._write_reg(ES8311_REG04_CLK_MANAGER, 0x10)  # DAC OSR
-        self._write_reg(ES8311_REG05_CLK_MANAGER, 0x00)  # ADC/DAC divider
-
-        # Step 3: I2S format
-        if bits == 16:
-            self._write_reg(ES8311_REG09_SDP_IN, 0x0C)   # I2S 16-bit
-            self._write_reg(ES8311_REG0A_SDP_OUT, 0x0C)  # I2S 16-bit
-        elif bits == 24:
-            self._write_reg(ES8311_REG09_SDP_IN, 0x00)
-            self._write_reg(ES8311_REG0A_SDP_OUT, 0x00)
-        else:  # 32-bit
-            self._write_reg(ES8311_REG09_SDP_IN, 0x04)
-            self._write_reg(ES8311_REG0A_SDP_OUT, 0x04)
-
-        # Step 4: System registers
-        self._write_reg(ES8311_REG0B_SYSTEM, 0x00)
-        self._write_reg(ES8311_REG0C_SYSTEM, 0x00)
-        self._write_reg(ES8311_REG10_SYSTEM, 0x1F)
-        self._write_reg(ES8311_REG11_SYSTEM, 0x7F)
-
-        # Step 5: Reset register - enable CSM
-        self._write_reg(ES8311_REG00_RESET, 0x80)
-
-        # Step 6: More clock config
-        self._write_reg(ES8311_REG01_CLK_MANAGER, 0x3F)  # Enable all clocks
-        self._write_reg(ES8311_REG13_SYSTEM, 0x10)
-
-        # Step 7: ADC gain/volume
-        self._write_reg(ES8311_REG1B_ADC, 0x0A)
-        self._write_reg(ES8311_REG1C_ADC, 0x6A)
-
-        # Step 8: Start ADC (ES_MODULE_ADC sequence from ESP-ADF)
-        self._write_reg(ES8311_REG17_ADC, 0xBF)         # ADC unmute, volume
-        self._write_reg(ES8311_REG0E_SYSTEM, 0x02)      # Enable ADC
-        self._write_reg(ES8311_REG12_SYSTEM, 0x00)
-        self._write_reg(ES8311_REG14_ADC, 0x1A)         # PGA gain +30dB
-        self._write_reg(ES8311_REG0D_SYSTEM, 0x01)      # Power up analog
-        self._write_reg(ES8311_REG15_ADC, 0x40)         # ADC config
-        self._write_reg(ES8311_REG44_GPIO, 0x58)        # GPIO config for ADC
+        # Точная последовательность из M5Unified _microphone_enabled_cb_cardputer_adv
+        self._write_reg(ES8311_REG00_RESET, 0x80)   # RESET/ CSM POWER ON
+        self._write_reg(ES8311_REG01_CLK_MANAGER, 0xBA)  # CLOCK_MANAGER/ MCLK=BCLK
+        self._write_reg(ES8311_REG02_CLK_MANAGER, 0x18)  # CLOCK_MANAGER/ MULT_PRE=3
+        self._write_reg(ES8311_REG0D_SYSTEM, 0x01)  # SYSTEM/ Power up analog
+        self._write_reg(ES8311_REG0E_SYSTEM, 0x02)  # SYSTEM/ Enable ADC
+        self._write_reg(ES8311_REG14_ADC, gain)     # ADC_REG14: PGA GAIN
+        self._write_reg(ES8311_REG17_ADC, 0xBF)     # ADC_REG17: ADC_VOLUME ± 0 dB
+        self._write_reg(ES8311_REG1C_ADC, 0x6A)     # ADC_REG1C: ADC EQ bypass
 
     def set_mic_gain(self, gain_db):
         """Set microphone gain (0-24 dB in 3dB steps)"""
@@ -170,8 +132,11 @@ CARDPUTER_I2C_SDA = 8
 CARDPUTER_I2C_SCL = 9
 
 
-def init_cardputer_audio():
-    """Initialize ES8311 on Cardputer ADV"""
+def init_cardputer_audio(gain=0x1A):
+    """Initialize ES8311 on Cardputer ADV
+
+    gain: 0x10 (minimum) to 0x1A (+30dB, default)
+    """
     from machine import SoftI2C
 
     i2c = SoftI2C(scl=Pin(CARDPUTER_I2C_SCL), sda=Pin(CARDPUTER_I2C_SDA), freq=100000)
@@ -186,7 +151,7 @@ def init_cardputer_audio():
     chip_id = codec.get_chip_id()
     print(f"ES8311 found, chip version: {hex(chip_id)}")
 
-    codec.init(sample_rate=16000, bits=16)
-    print("ES8311 initialized for 16kHz 16-bit recording (ESP-ADF sequence)")
+    codec.init(gain=gain)
+    print(f"ES8311 initialized (M5Unified config, gain=0x{gain:02X})")
 
     return codec

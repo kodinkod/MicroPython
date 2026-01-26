@@ -4,32 +4,33 @@
 from machine import I2S, Pin
 import es8311
 
-# I2S configuration for Cardputer ADV
+# I2S configuration for Cardputer ADV (verified working!)
 I2S_ID = 0
 I2S_BCK = 41
 I2S_WS = 43
-I2S_DIN = 46  # Microphone input
+I2S_DIN = 46  # Microphone data from ES8311
 
 
 class Recorder:
-    def __init__(self, sample_rate=16000, bits=16, buffer_size=4096):
+    def __init__(self, sample_rate=16000, bits=16, buffer_size=4096, gain=0x1A):
         """
-        Initialize audio recorder
-        sample_rate: 8000, 16000, 22050, 44100 Hz
-        bits: 16 or 32
+        Initialize audio recorder for Cardputer ADV
+        sample_rate: 16000 Hz (recommended)
+        bits: 16
         buffer_size: I2S buffer size in bytes
+        gain: 0x10 (min) to 0x1A (+30dB, default)
         """
         self.sample_rate = sample_rate
         self.bits = bits
         self.buffer_size = buffer_size
+        self.gain = gain
         self.codec = None
         self.i2s = None
-        self._is_recording = False
 
     def init(self):
-        """Initialize codec and I2S"""
-        # Initialize ES8311 codec
-        self.codec = es8311.init_cardputer_audio()
+        """Initialize ES8311 codec and I2S"""
+        # Initialize ES8311 codec with M5Unified config
+        self.codec = es8311.init_cardputer_audio(gain=self.gain)
         if self.codec is None:
             raise RuntimeError("Failed to initialize ES8311 codec")
 
@@ -45,7 +46,7 @@ class Recorder:
             rate=self.sample_rate,
             ibuf=self.buffer_size
         )
-        print(f"I2S initialized: {self.sample_rate}Hz, {self.bits}-bit, buf={self.buffer_size}")
+        print(f"Recorder ready: {self.sample_rate}Hz, {self.bits}-bit, gain=0x{self.gain:02X}")
 
     def deinit(self):
         """Deinitialize I2S"""

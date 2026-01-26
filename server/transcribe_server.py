@@ -3,32 +3,37 @@
 Transcription Server for Smart Dictaphone
 Receives audio from M5Stack Cardputer ADV and returns transcription
 
-Run: python transcribe_server.py
-Or with Whisper API: OPENAI_API_KEY=xxx python transcribe_server.py
+Run with OpenRouter:
+  OPENROUTER_API_KEY=sk-or-xxx python transcribe_server.py
+
+Or with OpenAI Whisper:
+  OPENAI_API_KEY=sk-xxx python transcribe_server.py
 """
 
 import os
-import io
+import base64
+import requests
 import tempfile
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
 # Choose transcription backend
-USE_OPENAI = os.environ.get('OPENAI_API_KEY') is not None
-USE_LOCAL_WHISPER = False  # Set True if you have whisper installed locally
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
-if USE_OPENAI:
+# OpenRouter model for audio transcription
+OPENROUTER_MODEL = os.environ.get('OPENROUTER_MODEL', 'google/gemini-2.5-flash')
+
+if OPENROUTER_API_KEY:
+    print(f"Using OpenRouter API with model: {OPENROUTER_MODEL}")
+elif OPENAI_API_KEY:
     from openai import OpenAI
     client = OpenAI()
     print("Using OpenAI Whisper API")
-elif USE_LOCAL_WHISPER:
-    import whisper
-    model = whisper.load_model("base")  # or "small", "medium", "large"
-    print("Using local Whisper model")
 else:
-    print("WARNING: No transcription backend configured!")
-    print("Set OPENAI_API_KEY env var or install whisper locally")
+    print("WARNING: No API key configured!")
+    print("Set OPENROUTER_API_KEY or OPENAI_API_KEY env var")
 
 
 @app.route('/transcribe', methods=['POST'])
@@ -45,19 +50,14 @@ def transcribe():
 
     print(f"Received {len(audio_data)} bytes of audio")
 
-    # Save to temp file
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
-        f.write(audio_data)
-        temp_path = f.name
-
     try:
         # Transcribe
-        if USE_OPENAI:
-            text = transcribe_openai(temp_path)
-        elif USE_LOCAL_WHISPER:
-            text = transcribe_local(temp_path)
+        if OPENROUTER_API_KEY:
+            text = transcribe_openrouter(audio_data)
+        elif OPENAI_API_KEY:
+            text = transcribe_openai(audio_data)
         else:
-            text = "[No transcription backend configured]"
+            text = "[No API key configured]"
 
         print(f"Transcription: {text}")
 
@@ -68,49 +68,96 @@ def transcribe():
 
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-    finally:
-        # Cleanup
-        os.unlink(temp_path)
+
+def transcribe_openrouter(audio_data):
+    """Transcribe using OpenRouter API (Gemini, etc.)"""
+    # Encode audio to base64
+    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:5000",
+        "X-Title": "Cardputer Dictaphone"
+    }
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Transcribe this audio. Return ONLY the transcribed text, nothing else. If the audio is in Russian, transcribe in Russian."
+                    },
+                    {
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": audio_base64,
+                            "format": "wav"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+    response.raise_for_status()
+
+    result = response.json()
+    return result['choices'][0]['message']['content']
 
 
-def transcribe_openai(audio_path):
+def transcribe_openai(audio_data):
     """Transcribe using OpenAI Whisper API"""
-    with open(audio_path, 'rb') as f:
-        response = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f,
-            language="ru"  # Change to your language or remove for auto-detect
-        )
-    return response.text
+    # Save to temp file (Whisper API needs file)
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+        f.write(audio_data)
+        temp_path = f.name
 
-
-def transcribe_local(audio_path):
-    """Transcribe using local Whisper model"""
-    result = model.transcribe(audio_path, language="ru")
-    return result["text"]
+    try:
+        with open(temp_path, 'rb') as f:
+            response = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="ru"  # Change or remove for auto-detect
+            )
+        return response.text
+    finally:
+        os.unlink(temp_path)
 
 
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
+    backend = 'openrouter' if OPENROUTER_API_KEY else ('openai' if OPENAI_API_KEY else 'none')
     return jsonify({
         'status': 'ok',
-        'backend': 'openai' if USE_OPENAI else ('local' if USE_LOCAL_WHISPER else 'none')
+        'backend': backend,
+        'model': OPENROUTER_MODEL if OPENROUTER_API_KEY else 'whisper-1'
     })
 
 
 @app.route('/', methods=['GET'])
 def index():
     """Info page"""
-    return """
+    backend = 'OpenRouter' if OPENROUTER_API_KEY else ('OpenAI Whisper' if OPENAI_API_KEY else 'None')
+    model = OPENROUTER_MODEL if OPENROUTER_API_KEY else 'whisper-1'
+    return f"""
     <h1>Dictaphone Transcription Server</h1>
-    <p>POST /transcribe - Send audio, get text</p>
+    <p>POST /transcribe - Send audio WAV, get text</p>
     <p>GET /health - Health check</p>
     <hr>
-    <p>Backend: {}</p>
-    """.format('OpenAI' if USE_OPENAI else ('Local Whisper' if USE_LOCAL_WHISPER else 'None'))
+    <p>Backend: {backend}</p>
+    <p>Model: {model}</p>
+    """
 
 
 if __name__ == '__main__':

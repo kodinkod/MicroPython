@@ -1,7 +1,7 @@
 # Transcription Server Requirements
 
 flask>=2.0
-openai>=1.0
+requests>=2.28
 
-# Optional: for local Whisper (requires ffmpeg)
-# openai-whisper
+# Optional: for OpenAI Whisper API
+# openai>=1.0

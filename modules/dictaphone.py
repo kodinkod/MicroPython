@@ -51,10 +51,16 @@ class Dictaphone:
         self.recorder.init()
         print("Recorder ready")
 
-    def record(self, duration_ms=5000):
-        """Record audio and return as bytes"""
+    def record(self, duration_ms=3000):
+        """Record audio and return as bytes (max ~3 sec due to RAM)"""
         if not self.recorder:
             self.init_recorder()
+
+        # Limit duration to avoid MemoryError (ESP32 has ~200KB free)
+        max_duration = 3000  # 3 sec = ~96KB
+        if duration_ms > max_duration:
+            print(f"Warning: limiting to {max_duration}ms due to RAM")
+            duration_ms = max_duration
 
         print(f"Recording {duration_ms}ms...")
         audio_data = self.recorder.record_to_buffer(duration_ms)
@@ -77,42 +83,47 @@ class Dictaphone:
             return None
 
         print(f"Sending {len(audio_data)} bytes to server...")
+        gc.collect()
 
         try:
-            # Create WAV header
-            wav_data = self._create_wav(audio_data)
+            # Create minimal WAV header (44 bytes)
+            header = self._create_wav_header(len(audio_data))
 
-            # Send as multipart form data
+            # Send header + data
             headers = {'Content-Type': 'audio/wav'}
+            # Combine header and data
+            wav_data = header + audio_data
+
             response = urequests.post(
                 self.server_url,
                 data=wav_data,
                 headers=headers
             )
 
+            result = None
             if response.status_code == 200:
                 result = response.json()
-                response.close()
-                return result
             else:
                 print(f"Server error: {response.status_code}")
-                response.close()
-                return None
+                print(response.text)
+
+            response.close()
+            del wav_data
+            gc.collect()
+            return result
 
         except Exception as e:
             print(f"Error sending audio: {e}")
-            return None
-        finally:
             gc.collect()
+            return None
 
-    def _create_wav(self, audio_data):
-        """Add WAV header to raw PCM data"""
+    def _create_wav_header(self, data_size):
+        """Create WAV header (44 bytes)"""
         import struct
 
         sample_rate = self.recorder.sample_rate if self.recorder else 16000
         bits = 16
         num_channels = 1
-        data_size = len(audio_data)
         byte_rate = sample_rate * num_channels * (bits // 8)
         block_align = num_channels * (bits // 8)
 
@@ -137,7 +148,7 @@ class Dictaphone:
         header[36:40] = b'data'
         struct.pack_into('<I', header, 40, data_size)
 
-        return bytes(header) + bytes(audio_data)
+        return bytes(header)
 
     def record_and_transcribe(self, duration_ms=5000):
         """Record audio and send for transcription"""
