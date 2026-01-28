@@ -56,9 +56,9 @@ class Dictaphone:
         if not self.recorder:
             self.init_recorder()
 
-        print(f"Recording {duration_ms}ms to {filename}...", end="")
+        print(f"-rec-", end="")
         self.recorder.record_to_file(filename, duration_ms)
-        print(" Done.")
+        print("-done-", end="")
         return filename
 
     def send_file(self, filename):
@@ -66,7 +66,7 @@ class Dictaphone:
             print("Not connected to WiFi")
             return None
 
-        print(f"Sending ...")
+        print("-sending-", end="")
         try:
             with open(filename, 'rb') as f:
                 headers = {'Content-Type': 'audio/wav'}
